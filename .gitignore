@@ -2,3 +2,6 @@
 /reddit-mental-health-dataset.zip
 /fine_tuned_results
 /data
+/fine_tuned_model
+/merged_model
+/sharded_model
