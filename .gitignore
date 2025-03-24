@@ -5,5 +5,14 @@
 /fine_tuned_model
 /merged_model
 /sharded_model
+/optimized_model
 /api.txt
 /*.txt
+/Backend/node_modules
+/Backend/config.js
+/Backend/google_creds.json
+/ESP32_Code/include/config.h
+/ESP32_Code/.pio
+/ESP32_Code/.vscode/c_cpp_properties.json
+/ESP32_Code/.vscode/launch.json
+/Backend/.env

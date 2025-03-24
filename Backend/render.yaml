@@ -1,0 +1,13 @@
+services:
+  - name: voice-assistant-api
+    type: web
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    envVars:
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/google_creds.json
+      - key: GROQ_API_KEY
+        sync: false
