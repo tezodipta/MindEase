@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const speech = require('@google-cloud/speech');
@@ -6,8 +7,7 @@ const textToSpeech = require('@google-cloud/text-to-speech');
 const axios = require('axios');
 require('dotenv').config();
 require('express-async-errors');
-const cors = require('cors');
-app.use(cors());
+
 const port = process.env.PORT || 3000;
 process.env.GOOGLE_APPLICATION_CREDENTIALS = path.resolve(process.env.GOOGLE_APPLICATION_CREDENTIALS);
 
@@ -34,6 +34,7 @@ const speechClient = new speech.SpeechClient();
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
 // Middleware for data processing
+app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
