@@ -198,7 +198,7 @@ async function callGroq(text) {
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.groqApiKey}`
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
         }
       }
     );
