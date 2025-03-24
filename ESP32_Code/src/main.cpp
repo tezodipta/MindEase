@@ -1,9 +1,3 @@
-/**
- * @brief Voice assistant. Client side ESP32.
- * @author Yurii Mykhailov (modified)
- * @copyright GPLv3
- */
-
 // Libraries
 #include <driver/i2s.h>
 #include <SPIFFS.h>
@@ -55,9 +49,9 @@ bool isWIFIConnected = false;
 volatile bool buttonPressed = false;
 
 // Node Js server Addresses
-const char *serverUploadUrl = "http://192.168.1.34:3000/uploadAudio";
-const char *serverBroadcastUrl = "http://192.168.1.34:3000/broadcastAudio";
-const char *broadcastPermitionUrl = "http://192.168.1.34:3000/checkVariable";
+const char *serverUploadUrl = "http://192.168.1.37:3000/uploadAudio";
+const char *serverBroadcastUrl = "http://192.168.1.37:3000/broadcastAudio";
+const char *broadcastPermitionUrl = "http://192.168.1.37:3000/checkVariable";
 
 // Function prototypes
 void SPIFFSInit();

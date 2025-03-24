@@ -17,10 +17,6 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS = path.resolve(process.env.GOOGLE_APP
 const app = express();
 
 
-// Path to files for local testing
-// const recordFile = path.resolve("./resources/recording.wav");
-// const voicedFile = path.resolve("./resources/voicedby.wav");
-
 // Path to files for production
 const recordFile = path.join(__dirname, 'tmp', 'recording.wav');
 const voicedFile = path.join(__dirname, 'tmp', 'voicedby.wav');
@@ -34,58 +30,49 @@ const speechClient = new speech.SpeechClient();
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
 // Middleware for data processing
-app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Upload Audio
 app.post('/uploadAudio', async (req, res) => {
   try {
-    if (!req.body) {
-      return res.status(400).json({ error: "No data received" });
-    }
-    try {
-      shouldDownloadFile = false;
-      const recordingFile = fs.createWriteStream(recordFile);
-      let dataSize = 0;
+    shouldDownloadFile = false;
+    const recordingFile = fs.createWriteStream(recordFile);
+    let dataSize = 0;
 
-      req.on('data', (chunk) => {
-        dataSize += chunk.length;
-      });
+    req.on('data', (chunk) => {
+      dataSize += chunk.length;
+    });
 
-      req.pipe(recordingFile);
+    req.pipe(recordingFile);
 
-      req.on('end', async () => {
-        recordingFile.end();
-        console.log(`Audio upload complete. Total size: ${dataSize} bytes`);
-
-        try {
-          const transcription = await speechToTextAPI();
-          if (transcription) {
-            console.log("Transcription successful, calling Groq...");
-            res.status(200).send(transcription);
-            callGroq(transcription);
-          } else {
-            console.error("Transcription failed, sending error response");
-            res.status(200).send('Error transcribing audio');
-          }
-        } catch (err) {
-          console.error('Error in audio processing:', err);
-          res.status(200).send('Error processing audio');
+    req.on('end', async () => {
+      recordingFile.end();
+      console.log(`Audio upload complete. Total size: ${dataSize} bytes`);
+      
+      try {
+        const transcription = await speechToTextAPI();
+        if (transcription) {
+          console.log("Transcription successful, calling Groq...");
+          res.status(200).send(transcription);
+          callGroq(transcription);
+        } else {
+          console.error("Transcription failed, sending error response");
+          res.status(200).send('Error transcribing audio');
         }
-      });
+      } catch (err) {
+        console.error('Error in audio processing:', err);
+        res.status(200).send('Error processing audio');
+      }
+    });
 
-      req.on('error', (err) => {
-        console.error('Error writing file:', err);
-        res.status(500).send('Error uploading audio');
-      });
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      res.status(500).send('Unexpected server error');
-    }
+    req.on('error', (err) => {
+      console.error('Error writing file:', err);
+      res.status(500).send('Error uploading audio');
+    });
   } catch (error) {
     console.error('Unexpected error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).send('Unexpected server error');
   }
 });
 
@@ -176,9 +163,9 @@ async function speechToTextAPI() {
 async function callGroq(text) {
   try {
     console.log('Sending to Groq:', text);
-
+    
     const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
-
+    
     const response = await axios.post(
       apiUrl,
       {
@@ -209,7 +196,7 @@ async function callGroq(text) {
 
     // Convert response to speech
     await GptResponsetoSpeech(groqResponse);
-
+    
   } catch (error) {
     console.error('Error calling Groq API:');
     if (error.response) {
@@ -218,7 +205,7 @@ async function callGroq(text) {
     } else {
       console.error(error.message);
     }
-
+    
     // Send a fallback response in case of error
     const fallbackResponse = "I'm sorry, I couldn't process your request at this time.";
     await GptResponsetoSpeech(fallbackResponse);
@@ -233,11 +220,11 @@ async function GptResponsetoSpeech(gptResponse) {
     if (!gptResponse || gptResponse.trim() === '') {
       gptResponse = "I'm sorry, I don't have a response at this time.";
     }
-
+    
     const request = {
       input: { text: gptResponse },
       voice: { languageCode: 'en-US', ssmlGender: 'NEUTRAL' },
-      audioConfig: {
+      audioConfig: { 
         audioEncoding: 'LINEAR16',
         sampleRateHertz: 16000,  // Make sure this matches ESP32
         effectsProfileId: ['headphone-class-device'],
