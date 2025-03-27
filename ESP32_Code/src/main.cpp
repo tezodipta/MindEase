@@ -3,6 +3,8 @@
 #include <SPIFFS.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include "config.h"
 
 // INMP441 Ports
@@ -21,6 +23,23 @@
 // LED Ports
 #define isWifiConnectedPin 25
 #define isAudioRecording 32
+
+// AP Mode Configuration
+#define AP_SSID "MideEase_Config"
+#define AP_PASSWORD "12345678"
+#define AP_CONFIG_TIMEOUT 300000 // 5 minutes timeout for configuration
+
+// DNS and webserver for captive portal
+const byte DNS_PORT = 53;
+IPAddress apIP(192, 168, 4, 1);
+DNSServer dnsServer;
+WebServer webServer(80);
+
+// Configuration variables
+String configSSID = "";
+String configPassword = "";
+String configServerIP = "";
+bool configComplete = false;
 
 unsigned long lastButtonPressTime = 0;
 const unsigned long debounceTime = 500; // 500ms debounce
@@ -48,10 +67,10 @@ const int headerSize = 44;
 bool isWIFIConnected = false;
 volatile bool buttonPressed = false;
 
-// Node Js server Addresses
-const char *serverUploadUrl = "http://192.168.1.37:3000/uploadAudio";
-const char *serverBroadcastUrl = "http://192.168.1.37:3000/broadcastAudio";
-const char *broadcastPermitionUrl = "http://192.168.1.37:3000/checkVariable";
+// Dynamic server URLs that will be updated based on configuration
+String serverUploadUrl;
+String serverBroadcastUrl;
+String broadcastPermitionUrl;
 
 // Function prototypes
 void SPIFFSInit();
@@ -67,6 +86,11 @@ void handleVoiceAssistantWorkflow();
 void recordAudio();
 void uploadFile();
 void waitForResponseAndPlay();
+void startConfigPortal();
+void handleRoot();
+void handleSave();
+void handleNotFound();
+void updateServerUrls();
 
 void setup()
 {
@@ -90,14 +114,214 @@ void setup()
   i2sInitINMP441();
   i2sInitMax98357A();
 
-  // Connect to WiFi
-  isWIFIConnected = connectToWifi();
+  // Start configuration portal
+  startConfigPortal();
+
+  // After configuration, connect to the configured WiFi
+  if (configComplete) {
+    isWIFIConnected = connectToWifi();
+    if (isWIFIConnected) {
+      updateServerUrls();
+    }
+  }
 
   Serial.println("Setup complete. Press button to start voice assistant.");
 }
 
+void updateServerUrls() {
+  serverUploadUrl = "http://" + configServerIP + ":3000/uploadAudio";
+  serverBroadcastUrl = "http://" + configServerIP + ":3000/broadcastAudio";
+  broadcastPermitionUrl = "http://" + configServerIP + ":3000/checkVariable";
+  
+  Serial.println("Server URLs updated:");
+  Serial.println("Upload URL: " + serverUploadUrl);
+  Serial.println("Broadcast URL: " + serverBroadcastUrl);
+  Serial.println("Permission URL: " + broadcastPermitionUrl);
+}
+
+void startConfigPortal() {
+  Serial.println("Starting configuration portal...");
+  
+  // Set up AP mode
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  
+  // Start DNS server for captive portal
+  dnsServer.start(DNS_PORT, "*", apIP);
+  
+  // Setup web server routes
+  webServer.on("/", HTTP_GET, handleRoot);
+  webServer.on("/save", HTTP_POST, handleSave);
+  webServer.onNotFound(handleNotFound);
+  webServer.begin();
+  
+  Serial.println("Configuration portal started!");
+  Serial.println("Connect to WiFi network: " + String(AP_SSID));
+  Serial.println("Password: " + String(AP_PASSWORD));
+  Serial.println("Then navigate to http://192.168.4.1 to configure");
+  
+  // Blink LED to indicate config mode
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(isWifiConnectedPin, HIGH);
+    delay(100);
+    digitalWrite(isWifiConnectedPin, LOW);
+    delay(100);
+  }
+  
+  // Wait for configuration or timeout
+  unsigned long startTime = millis();
+  while (!configComplete && (millis() - startTime < AP_CONFIG_TIMEOUT)) {
+    dnsServer.processNextRequest();
+    webServer.handleClient();
+    delay(10);
+  }
+  
+  // If timed out without configuration, use defaults if available
+  if (!configComplete) {
+    Serial.println("Configuration portal timed out. Using default settings if available.");
+    
+    // Check if config.h has WiFi credentials defined
+    #ifdef WIFI_SSID
+      configSSID = WIFI_SSID;
+      configPassword = WIFI_PASSWORD;
+      configServerIP = "192.168.81.41"; // Default server IP
+      configComplete = true;
+    #else
+      Serial.println("No default settings available. Device may not function properly.");
+    #endif
+  }
+  
+  // Stop AP mode properly
+  webServer.stop();
+  dnsServer.stop();
+  WiFi.softAPdisconnect(true);
+  
+  // Switch mode and prepare for station connection
+  WiFi.mode(WIFI_OFF);
+  delay(500);
+  WiFi.mode(WIFI_STA);
+  delay(100);
+}
+
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head><title>MideEase Configuration</title>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<style>"
+                "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }"
+                ".container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }"
+                "h1 { color: #333; text-align: center; margin-bottom: 20px; }"
+                "label { display: block; margin-bottom: 5px; font-weight: bold; }"
+                "input[type='text'], input[type='password'] { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }"
+                "button { background-color: #4CAF50; color: white; border: none; padding: 10px 20px; text-align: center; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; }"
+                "button:hover { background-color: #45a049; }"
+                ".hint { font-size: 12px; color: #666; margin-top: -15px; margin-bottom: 15px; }"
+                "</style></head>"
+                "<body><div class='container'>"
+                "<h1>MideEase Configuration</h1>"
+                "<form action='/save' method='post'>"
+                "<label for='ssid'>WiFi Network Name:</label>"
+                "<input type='text' id='ssid' name='ssid' placeholder='Enter your WiFi SSID' required>"
+                "<label for='password'>WiFi Password:</label>"
+                "<input type='password' id='password' name='password' placeholder='Enter your WiFi password' required>"
+                "<div class='hint'>Password must be at least 8 characters</div>"
+                "<label for='server'>Server IP Address:</label>"
+                "<input type='text' id='server' name='server' placeholder='e.g., 192.168.1.100' required>"
+                "<div class='hint'>IP address of your Node.js server</div>"
+                "<button type='submit'>Save and Connect</button>"
+                "</form></div></body></html>";
+  webServer.send(200, "text/html", html);
+}
+
+void handleSave() {
+  if (webServer.hasArg("ssid") && webServer.hasArg("password") && webServer.hasArg("server")) {
+    String ssid = webServer.arg("ssid");
+    String password = webServer.arg("password");
+    String server = webServer.arg("server");
+    
+    // Simple validation
+    if (ssid.length() == 0 || password.length() < 8 || server.length() == 0) {
+      String errorHtml = "<!DOCTYPE html><html><head><title>Configuration Error</title>"
+                    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                    "<style>body {font-family: Arial; text-align: center;} "
+                    ".container {max-width: 400px; margin: 0 auto; padding: 20px; border: 1px solid #ccc;}"
+                    "h1 {color: #f44336;}</style></head>"
+                    "<body><div class='container'>"
+                    "<h1>Configuration Error</h1>"
+                    "<p>Please ensure all fields are filled correctly:</p>"
+                    "<ul style='text-align: left;'>";
+      
+      if (ssid.length() == 0) errorHtml += "<li>SSID cannot be empty</li>";
+      if (password.length() < 8) errorHtml += "<li>Password must be at least 8 characters</li>";
+      if (server.length() == 0) errorHtml += "<li>Server IP cannot be empty</li>";
+      
+      errorHtml += "</ul><p><a href='/'>Back to Configuration</a></p></div></body></html>";
+      
+      webServer.send(400, "text/html", errorHtml);
+      return;
+    }
+    
+    // Save the configuration
+    configSSID = ssid;
+    configPassword = password;
+    configServerIP = server;
+    
+    String html = "<!DOCTYPE html><html><head><title>Configuration Saved</title>"
+                  "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                  "<style>"
+                  "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; text-align: center; }"
+                  ".container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }"
+                  "h1 { color: #4CAF50; }"
+                  "p { margin-bottom: 20px; }"
+                  ".loader { border: 5px solid #f3f3f3; border-top: 5px solid #4CAF50; border-radius: 50%; width: 50px; height: 50px; animation: spin 2s linear infinite; margin: 20px auto; }"
+                  "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }"
+                  "</style></head>"
+                  "<body><div class='container'>"
+                  "<h1>Configuration Saved!</h1>"
+                  "<p>The device will now attempt to connect to your WiFi network.</p>"
+                  "<div class='loader'></div>"
+                  "<p>You can close this page.</p>"
+                  "</div></body></html>";
+    webServer.send(200, "text/html", html);
+    
+    Serial.println("Configuration received:");
+    Serial.println("SSID: " + configSSID);
+    Serial.println("Server IP: " + configServerIP);
+    
+    configComplete = true;
+  } else {
+    webServer.send(400, "text/plain", "Missing required parameters");
+  }
+}
+
+void handleNotFound() {
+  // Check if the request is for a recognized file type
+  String uri = webServer.uri();
+  if (uri.endsWith(".css") || uri.endsWith(".js") || uri.endsWith(".ico") || uri.endsWith(".png")) {
+    // For web resources, return a 404
+    webServer.send(404, "text/plain", "File not found");
+  } else {
+    // For all other requests, redirect to the main configuration page
+    // This creates a proper captive portal experience
+    String redirectUrl = "http://192.168.4.1/";
+    webServer.sendHeader("Location", redirectUrl, true);
+    webServer.send(302, "text/plain", "");
+  }
+}
+
 void loop()
 {
+  // If WiFi is disconnected, try to reconnect
+  if (isWIFIConnected && WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi connection lost. Reconnecting...");
+    isWIFIConnected = connectToWifi();
+    if (!isWIFIConnected) {
+      digitalWrite(isWifiConnectedPin, LOW);
+    }
+  }
+  
   if (buttonPressed && !workflowInProgress) {
     buttonPressed = false;
     workflowInProgress = true;
@@ -117,29 +341,45 @@ void IRAM_ATTR buttonInterrupt() {
   }
 }
 
-bool connectToWifi()
-{
-  Serial.print("Connecting to WiFi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+bool connectToWifi() {
+  // Ensure WiFi is in station mode
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);
+  delay(100);
+  
+  Serial.print("Connecting to WiFi: ");
+  
+  // Use the configured WiFi credentials
+  if (configComplete) {
+    Serial.println(configSSID);
+    WiFi.begin(configSSID.c_str(), configPassword.c_str());
+  } else {
+    // Fallback to config.h credentials if configuration wasn't completed
+    Serial.println(WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
 
+  // Wait longer for connection - some networks take time
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20)
-  {
+  const int maxAttempts = 30; // Increased from 20 to 30
+  
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
     delay(500);
     Serial.print(".");
     attempts++;
   }
 
-  if (WiFi.status() == WL_CONNECTED)
-  {
+  if (WiFi.status() == WL_CONNECTED) {
     digitalWrite(isWifiConnectedPin, HIGH);
     Serial.println("\nConnected to WiFi!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
     return true;
-  }
-  else
-  {
+  } else {
     digitalWrite(isWifiConnectedPin, LOW);
     Serial.println("\nFailed to connect to WiFi!");
+    Serial.println("SSID: " + (configComplete ? configSSID : String(WIFI_SSID)));
+    Serial.println("Status code: " + String(WiFi.status()));
     return false;
   }
 }

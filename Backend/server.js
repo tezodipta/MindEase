@@ -114,6 +114,16 @@ app.get('/status', (req, res) => {
 // Start Server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}/`);
+  //printing the ip 
+  const interfaces = require('os').networkInterfaces();
+  for (const interfaceName in interfaces) {
+    const addresses = interfaces[interfaceName];
+    for (const address of addresses) {
+      if (address.family === 'IPv4' && !address.internal) {
+        console.log(`Server IP: ${address.address}`);
+      }
+    }
+  }
 });
 
 // Speech to Text using Google
