@@ -55,7 +55,10 @@ app.post('/uploadAudio', async (req, res) => {
         if (transcription) {
           console.log("Transcription successful, calling Groq...");
           res.status(200).send(transcription);
+          //calling the groq api 
           callGroq(transcription);
+          // Uncomment the line below to call the custom LLM API instead of Groq
+          // callCustomLLM(transcription);
         } else {
           console.error("Transcription failed, sending error response");
           res.status(200).send('Error transcribing audio');
@@ -221,6 +224,38 @@ async function callGroq(text) {
     await GptResponsetoSpeech(fallbackResponse);
   }
 }
+
+//calling custom llm api which is in google colab 
+// Call custom local LLM API instead of Groq
+async function callCustomLLM(text) {
+  try {
+    console.log('Sending to custom LLM:', text);
+
+    const apiUrl = "https://nicely-funky-katydid.ngrok-free.app/generate";
+
+    const response = await axios.post(
+      apiUrl,
+      { prompt: text },
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const customResponse = response.data.response;  // Extract the string only
+
+    console.log('Custom LLM Response:', customResponse);
+
+    // Convert response to speech
+    await GptResponsetoSpeech(customResponse);
+  } catch (error) {
+    console.error('Error calling custom LLM API:', error.message);
+    const fallbackResponse = "I'm sorry, I couldn't process your request at this time.";
+    await GptResponsetoSpeech(fallbackResponse);
+  }
+}
+
 
 // Text to Speech using Google
 // In the server.js file:
