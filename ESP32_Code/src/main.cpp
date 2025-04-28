@@ -23,6 +23,7 @@
 // LED Ports
 #define isWifiConnectedPin 25
 #define isAudioRecording 32
+#define LED_BUILTIN BUILTIN_LED
 
 // AP Mode Configuration
 #define AP_SSID "MideEase_Config"
@@ -94,7 +95,6 @@ void handleNotFound();
 void updateServerUrls();
 bool tryHardcodedWifi();
 
-
 void setup()
 {
   Serial.begin(115200);
@@ -119,102 +119,111 @@ void setup()
 
   // First try to connect using hardcoded credentials
   isWIFIConnected = tryHardcodedWifi();
-  
+
   // If hardcoded connection fails, start configuration portal
-  if (!isWIFIConnected) {
+  if (!isWIFIConnected)
+  {
     startConfigPortal();
-    
+
     // After configuration, connect to the configured WiFi
-    if (configComplete) {
+    if (configComplete)
+    {
       isWIFIConnected = connectToWifi();
     }
-  } else {
+  }
+  else
+  {
     // If hardcoded connection succeeds, set as configured
     configComplete = true;
     configSSID = WIFI_SSID;
     configPassword = WIFI_PASSWORD;
     // No need to set configServerIP as we'll use the static URL
   }
-  
+
   // Update server URLs with the static URL
   updateServerUrls();
 
   Serial.println("Setup complete. Press button to start voice assistant.");
 }
 
-void updateServerUrls() {
+void updateServerUrls()
+{
   // Use static URL instead of IP address
   String baseUrl = "http://hornet-upright-ewe.ngrok-free.app";
   serverUploadUrl = baseUrl + "/uploadAudio";
   serverBroadcastUrl = baseUrl + "/broadcastAudio";
   broadcastPermitionUrl = baseUrl + "/checkVariable";
-  
+
   Serial.println("Server URLs updated:");
   Serial.println("Upload URL: " + serverUploadUrl);
   Serial.println("Broadcast URL: " + serverBroadcastUrl);
   Serial.println("Permission URL: " + broadcastPermitionUrl);
 }
 
-void startConfigPortal() {
+void startConfigPortal()
+{
   Serial.println("Starting configuration portal...");
-  
+
   // Set up AP mode
   WiFi.disconnect(true);
   delay(100);
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   WiFi.softAP(AP_SSID, AP_PASSWORD);
-  
+
   // Start DNS server for captive portal
   dnsServer.start(DNS_PORT, "*", apIP);
-  
+
   // Setup web server routes
   webServer.on("/", HTTP_GET, handleRoot);
   webServer.on("/save", HTTP_POST, handleSave);
   webServer.onNotFound(handleNotFound);
   webServer.begin();
-  
+
   Serial.println("Configuration portal started!");
   Serial.println("Connect to WiFi network: " + String(AP_SSID));
   Serial.println("Password: " + String(AP_PASSWORD));
   Serial.println("Then navigate to http://192.168.4.1 to configure");
-  
+
   // Blink LED to indicate config mode
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++)
+  {
     digitalWrite(isWifiConnectedPin, HIGH);
     delay(100);
     digitalWrite(isWifiConnectedPin, LOW);
     delay(100);
   }
-  
+
   // Wait for configuration or timeout
   unsigned long startTime = millis();
-  while (!configComplete && (millis() - startTime < AP_CONFIG_TIMEOUT)) {
+  while (!configComplete && (millis() - startTime < AP_CONFIG_TIMEOUT))
+  {
     dnsServer.processNextRequest();
     webServer.handleClient();
     delay(10);
   }
-  
+
   // If timed out without configuration, use defaults if available
-  if (!configComplete) {
+  if (!configComplete)
+  {
     Serial.println("Configuration portal timed out. Using default settings if available.");
-    
-    // Check if config.h has WiFi credentials defined
-    #ifdef WIFI_SSID
-      configSSID = WIFI_SSID;
-      configPassword = WIFI_PASSWORD;
-      configServerIP = "192.168.81.41"; // Default server IP
-      configComplete = true;
-    #else
-      Serial.println("No default settings available. Device may not function properly.");
-    #endif
+
+// Check if config.h has WiFi credentials defined
+#ifdef WIFI_SSID
+    configSSID = WIFI_SSID;
+    configPassword = WIFI_PASSWORD;
+    configServerIP = "192.168.81.41"; // Default server IP
+    configComplete = true;
+#else
+    Serial.println("No default settings available. Device may not function properly.");
+#endif
   }
-  
+
   // Stop AP mode properly
   webServer.stop();
   dnsServer.stop();
   WiFi.softAPdisconnect(true);
-  
+
   // Switch mode and prepare for station connection
   WiFi.mode(WIFI_OFF);
   delay(500);
@@ -222,7 +231,8 @@ void startConfigPortal() {
   delay(100);
 }
 
-void handleRoot() {
+void handleRoot()
+{
   String html = "<!DOCTYPE html><html><head><title>MideEase Configuration</title>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 "<style>"
@@ -248,37 +258,42 @@ void handleRoot() {
   webServer.send(200, "text/html", html);
 }
 
-void handleSave() {
-  if (webServer.hasArg("ssid") && webServer.hasArg("password")) {
+void handleSave()
+{
+  if (webServer.hasArg("ssid") && webServer.hasArg("password"))
+  {
     String ssid = webServer.arg("ssid");
     String password = webServer.arg("password");
-    
+
     // Simple validation
-    if (ssid.length() == 0 || password.length() < 8) {
+    if (ssid.length() == 0 || password.length() < 8)
+    {
       String errorHtml = "<!DOCTYPE html><html><head><title>Configuration Error</title>"
-                    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                    "<style>body {font-family: Arial; text-align: center;} "
-                    ".container {max-width: 400px; margin: 0 auto; padding: 20px; border: 1px solid #ccc;}"
-                    "h1 {color: #f44336;}</style></head>"
-                    "<body><div class='container'>"
-                    "<h1>Configuration Error</h1>"
-                    "<p>Please ensure all fields are filled correctly:</p>"
-                    "<ul style='text-align: left;'>";
-      
-      if (ssid.length() == 0) errorHtml += "<li>SSID cannot be empty</li>";
-      if (password.length() < 8) errorHtml += "<li>Password must be at least 8 characters</li>";
-      
+                         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                         "<style>body {font-family: Arial; text-align: center;} "
+                         ".container {max-width: 400px; margin: 0 auto; padding: 20px; border: 1px solid #ccc;}"
+                         "h1 {color: #f44336;}</style></head>"
+                         "<body><div class='container'>"
+                         "<h1>Configuration Error</h1>"
+                         "<p>Please ensure all fields are filled correctly:</p>"
+                         "<ul style='text-align: left;'>";
+
+      if (ssid.length() == 0)
+        errorHtml += "<li>SSID cannot be empty</li>";
+      if (password.length() < 8)
+        errorHtml += "<li>Password must be at least 8 characters</li>";
+
       errorHtml += "</ul><p><a href='/'>Back to Configuration</a></p></div></body></html>";
-      
+
       webServer.send(400, "text/html", errorHtml);
       return;
     }
-    
+
     // Save the configuration
     configSSID = ssid;
     configPassword = password;
     // Server URL is now static, no need to collect it
-    
+
     String html = "<!DOCTYPE html><html><head><title>Configuration Saved</title>"
                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                   "<style>"
@@ -296,23 +311,29 @@ void handleSave() {
                   "<p>You can close this page.</p>"
                   "</div></body></html>";
     webServer.send(200, "text/html", html);
-    
+
     Serial.println("Configuration received:");
     Serial.println("SSID: " + configSSID);
-    
+
     configComplete = true;
-  } else {
+  }
+  else
+  {
     webServer.send(400, "text/plain", "Missing required parameters");
   }
 }
 
-void handleNotFound() {
+void handleNotFound()
+{
   // Check if the request is for a recognized file type
   String uri = webServer.uri();
-  if (uri.endsWith(".css") || uri.endsWith(".js") || uri.endsWith(".ico") || uri.endsWith(".png")) {
+  if (uri.endsWith(".css") || uri.endsWith(".js") || uri.endsWith(".ico") || uri.endsWith(".png"))
+  {
     // For web resources, return a 404
     webServer.send(404, "text/plain", "File not found");
-  } else {
+  }
+  else
+  {
     // For all other requests, redirect to the main configuration page
     // This creates a proper captive portal experience
     String redirectUrl = "http://192.168.4.1/";
@@ -324,15 +345,18 @@ void handleNotFound() {
 void loop()
 {
   // If WiFi is disconnected, try to reconnect
-  if (isWIFIConnected && WiFi.status() != WL_CONNECTED) {
+  if (isWIFIConnected && WiFi.status() != WL_CONNECTED)
+  {
     Serial.println("WiFi connection lost. Reconnecting...");
     isWIFIConnected = connectToWifi();
-    if (!isWIFIConnected) {
+    if (!isWIFIConnected)
+    {
       digitalWrite(isWifiConnectedPin, LOW);
     }
   }
-  
-  if (buttonPressed && !workflowInProgress) {
+
+  if (buttonPressed && !workflowInProgress)
+  {
     buttonPressed = false;
     workflowInProgress = true;
     handleVoiceAssistantWorkflow();
@@ -343,27 +367,33 @@ void loop()
   delay(100);
 }
 
-void IRAM_ATTR buttonInterrupt() {
+void IRAM_ATTR buttonInterrupt()
+{
   unsigned long currentTime = millis();
-  if (currentTime - lastButtonPressTime > debounceTime && !workflowInProgress) {
+  if (currentTime - lastButtonPressTime > debounceTime && !workflowInProgress)
+  {
     buttonPressed = true;
     lastButtonPressTime = currentTime;
   }
 }
 
-bool connectToWifi() {
+bool connectToWifi()
+{
   // Ensure WiFi is in station mode
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true);
   delay(100);
-  
+
   Serial.print("Connecting to WiFi: ");
-  
+
   // Use the configured WiFi credentials
-  if (configComplete) {
+  if (configComplete)
+  {
     Serial.println(configSSID);
     WiFi.begin(configSSID.c_str(), configPassword.c_str());
-  } else {
+  }
+  else
+  {
     // Fallback to config.h credentials if configuration wasn't completed
     Serial.println(WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -372,20 +402,24 @@ bool connectToWifi() {
   // Wait longer for connection - some networks take time
   int attempts = 0;
   const int maxAttempts = 30; // Increased from 20 to 30
-  
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts)
+  {
     delay(500);
     Serial.print(".");
     attempts++;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED)
+  {
     digitalWrite(isWifiConnectedPin, HIGH);
     Serial.println("\nConnected to WiFi!");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
     return true;
-  } else {
+  }
+  else
+  {
     digitalWrite(isWifiConnectedPin, LOW);
     Serial.println("\nFailed to connect to WiFi!");
     Serial.println("SSID: " + (configComplete ? configSSID : String(WIFI_SSID)));
@@ -464,13 +498,14 @@ void handleVoiceAssistantWorkflow()
   {
     SPIFFS.remove(audioResponsefile);
   }
-
+  digitalWrite(LED_BUILTIN, LOW);
   Serial.println("Workflow completed. Ready for next button press.");
 }
 
 void recordAudio()
 {
   digitalWrite(isAudioRecording, HIGH);
+  digitalWrite(LED_BUILTIN, HIGH);
   Serial.println(" *** Get Ready to Speak *** ");
 
   // Initialize buffer for flushing
@@ -513,7 +548,7 @@ void recordAudio()
 
   Serial.println("Recording completed");
   listSPIFFS();
-  startMicros = micros();  // Start time
+  startMicros = micros(); // Start time
 }
 
 void uploadFile()
@@ -530,7 +565,10 @@ void uploadFile()
   HTTPClient client;
   client.begin(serverUploadUrl);
   client.addHeader("Content-Type", "audio/wav");
+  client.setTimeout(6000); // <-- wait up to 60 seconds
+  // client.setReuse(true);              // optional: reuse the TCP connection
   int httpResponseCode = client.sendRequest("POST", &file, file.size());
+
   Serial.print("httpResponseCode : ");
   Serial.println(httpResponseCode);
 
@@ -595,6 +633,7 @@ void waitForResponseAndPlay()
     i2s_zero_dma_buffer(MAX_I2S_NUM);
 
     WiFiClient *stream = http.getStreamPtr();
+    size_t contentLength = http.getSize(); // this reads the Content-Length header
     // Skip WAV header (first 44 bytes) which might be causing issues
     uint8_t header_buffer[44];
     int header_bytes_read = 0;
@@ -606,50 +645,32 @@ void waitForResponseAndPlay()
         header_bytes_read += len;
       }
     }
-    uint8_t buffer[4096]; // Smaller buffer for more frequent writes
+    uint8_t buffer[1024]; // Smaller buffer for more frequent writes
     size_t total_bytes_written = 0;
-    int retry_count = 0;
-    const int max_retries = 5;
 
-        // Keep track of available data and handle it in chunks
-    while (stream->connected() || stream->available() > 0)
+    // Keep track of available data and handle it in chunks
+    unsigned long playbackStart = millis();
+
+    while (total_bytes_written < contentLength && millis() - playbackStart < 15000)
     {
-      size_t available_bytes = stream->available();
-
-      if (available_bytes == 0)
-      {
-        // Wait longer for data to arrive
-        delay(50);
-        retry_count++;
-        if (retry_count > max_retries)
-          break;
-        continue;
-      }
-
-      retry_count = 0; // Reset retry counter when data arrives
-
-      // Read a chunk of data
-      int len = stream->read(buffer, min(available_bytes, sizeof(buffer)));
+      int len = stream->read(buffer, sizeof(buffer));
       if (len > 0)
       {
-        size_t bytes_written = 0;
-        // Add retry logic for writing to I2S
-        int write_attempts = 0;
-        while (bytes_written < len && write_attempts < 3)
-        {
-          size_t new_bytes;
-          i2s_write(MAX_I2S_NUM, buffer + bytes_written, len - bytes_written, &new_bytes, 100);
-          bytes_written += new_bytes;
-          write_attempts++;
-          if (bytes_written < len)
-            delay(5);
-        }
-        total_bytes_written += bytes_written;
+        size_t written;
+        i2s_write(MAX_I2S_NUM, buffer, len, &written, portMAX_DELAY);
+        total_bytes_written += written;
+      }
+      else
+      {
+        // no data right now, give it a moment
+        delay(5);
       }
     }
 
     // Make sure all data is played before finishing
     delay(500);
+    i2s_stop(MAX_I2S_NUM);
+    i2s_zero_dma_buffer(MAX_I2S_NUM);
     Serial.printf("Audio playback completed (bytes: %d)\n", total_bytes_written);
   }
   else
@@ -659,7 +680,6 @@ void waitForResponseAndPlay()
 
   http.end();
 }
-
 
 void i2sInitINMP441()
 {
@@ -693,9 +713,9 @@ void i2sInitMax98357A()
       .bits_per_sample = i2s_bits_per_sample_t(MAX_I2S_SAMPLE_BITS),
       .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, // Try changing to ONLY_RIGHT if still too fast
       .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-      .intr_alloc_flags = 0, //ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 4, //8,
-      .dma_buf_len = 1024, //MAX_I2S_READ_LEN,
+      .intr_alloc_flags = 0, // ESP_INTR_FLAG_LEVEL1,
+      .dma_buf_count = 4,    // 8,
+      .dma_buf_len = 1024,   // MAX_I2S_READ_LEN,
       .use_apll = false,
       .tx_desc_auto_clear = true,
       .fixed_mclk = 0};
@@ -704,7 +724,7 @@ void i2sInitMax98357A()
       .bck_io_num = I2S_BCLK,
       .ws_io_num = I2S_LRC,
       .data_out_num = I2S_DOUT,
-      .data_in_num = -1};//I2S_PIN_NO_CHANGE
+      .data_in_num = -1}; // I2S_PIN_NO_CHANGE
 
   i2s_driver_install(MAX_I2S_NUM, &i2s_config, 0, NULL);
   i2s_set_pin(MAX_I2S_NUM, &pin_config);
@@ -751,8 +771,8 @@ void wavHeader(byte *header, int wavSize)
   header[21] = 0x00;
   header[22] = 0x01;
   header[23] = 0x00;
-  header[24] = 0x80;  // 16000 & 0xFF
-  header[25] = 0x3E;  // (16000 >> 8) & 0xFF
+  header[24] = 0x80; // 16000 & 0xFF
+  header[25] = 0x3E; // (16000 >> 8) & 0xFF
   header[26] = 0x00;
   header[27] = 0x00;
   header[28] = 0x00; // 32000 & 0xFF
@@ -845,34 +865,39 @@ void printSpaceInfo()
   Serial.print("Free space: ");
   Serial.println(freeBytes);
 }
-bool tryHardcodedWifi() {
+bool tryHardcodedWifi()
+{
   // Try to connect with hardcoded WiFi credentials from config.h
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true);
   delay(100);
-  
+
   Serial.print("Connecting to hardcoded WiFi: ");
   Serial.println(WIFI_SSID);
-  
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  
+
   // Try to connect 3 times
   int attempts = 0;
   const int maxAttempts = 3;
-  
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts)
+  {
     delay(1000);
     Serial.print(".");
     attempts++;
   }
-  
-  if (WiFi.status() == WL_CONNECTED) {
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
     digitalWrite(isWifiConnectedPin, HIGH);
     Serial.println("\nConnected to WiFi!");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
     return true;
-  } else {
+  }
+  else
+  {
     Serial.println("\nFailed to connect using hardcoded credentials.");
     return false;
   }
