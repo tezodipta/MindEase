@@ -1,3 +1,4 @@
+[paste the code in src/main.cpp ( 5 sec input limit, no static backend address ,good if you did not deploy your backend or useing tunnels like ngrok,you can give the wifi id and password and ip in the dns it creates )]
 // Libraries
 #include <driver/i2s.h>
 #include <SPIFFS.h>
@@ -92,8 +93,6 @@ void handleRoot();
 void handleSave();
 void handleNotFound();
 void updateServerUrls();
-bool tryHardcodedWifi();
-
 
 void setup()
 {
@@ -117,37 +116,24 @@ void setup()
   i2sInitINMP441();
   i2sInitMax98357A();
 
-  // First try to connect using hardcoded credentials
-  isWIFIConnected = tryHardcodedWifi();
-  
-  // If hardcoded connection fails, start configuration portal
-  if (!isWIFIConnected) {
-    startConfigPortal();
-    
-    // After configuration, connect to the configured WiFi
-    if (configComplete) {
-      isWIFIConnected = connectToWifi();
+  // Start configuration portal
+  startConfigPortal();
+
+  // After configuration, connect to the configured WiFi
+  if (configComplete) {
+    isWIFIConnected = connectToWifi();
+    if (isWIFIConnected) {
+      updateServerUrls();
     }
-  } else {
-    // If hardcoded connection succeeds, set as configured
-    configComplete = true;
-    configSSID = WIFI_SSID;
-    configPassword = WIFI_PASSWORD;
-    // No need to set configServerIP as we'll use the static URL
   }
-  
-  // Update server URLs with the static URL
-  updateServerUrls();
 
   Serial.println("Setup complete. Press button to start voice assistant.");
 }
 
 void updateServerUrls() {
-  // Use static URL instead of IP address
-  String baseUrl = "http://hornet-upright-ewe.ngrok-free.app";
-  serverUploadUrl = baseUrl + "/uploadAudio";
-  serverBroadcastUrl = baseUrl + "/broadcastAudio";
-  broadcastPermitionUrl = baseUrl + "/checkVariable";
+  serverUploadUrl = "http://" + configServerIP + ":3000/uploadAudio";
+  serverBroadcastUrl = "http://" + configServerIP + ":3000/broadcastAudio";
+  broadcastPermitionUrl = "http://" + configServerIP + ":3000/checkVariable";
   
   Serial.println("Server URLs updated:");
   Serial.println("Upload URL: " + serverUploadUrl);
@@ -243,18 +229,22 @@ void handleRoot() {
                 "<label for='password'>WiFi Password:</label>"
                 "<input type='password' id='password' name='password' placeholder='Enter your WiFi password' required>"
                 "<div class='hint'>Password must be at least 8 characters</div>"
+                "<label for='server'>Server IP Address:</label>"
+                "<input type='text' id='server' name='server' placeholder='e.g., 192.168.1.100' required>"
+                "<div class='hint'>IP address of your Node.js server</div>"
                 "<button type='submit'>Save and Connect</button>"
                 "</form></div></body></html>";
   webServer.send(200, "text/html", html);
 }
 
 void handleSave() {
-  if (webServer.hasArg("ssid") && webServer.hasArg("password")) {
+  if (webServer.hasArg("ssid") && webServer.hasArg("password") && webServer.hasArg("server")) {
     String ssid = webServer.arg("ssid");
     String password = webServer.arg("password");
+    String server = webServer.arg("server");
     
     // Simple validation
-    if (ssid.length() == 0 || password.length() < 8) {
+    if (ssid.length() == 0 || password.length() < 8 || server.length() == 0) {
       String errorHtml = "<!DOCTYPE html><html><head><title>Configuration Error</title>"
                     "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                     "<style>body {font-family: Arial; text-align: center;} "
@@ -267,6 +257,7 @@ void handleSave() {
       
       if (ssid.length() == 0) errorHtml += "<li>SSID cannot be empty</li>";
       if (password.length() < 8) errorHtml += "<li>Password must be at least 8 characters</li>";
+      if (server.length() == 0) errorHtml += "<li>Server IP cannot be empty</li>";
       
       errorHtml += "</ul><p><a href='/'>Back to Configuration</a></p></div></body></html>";
       
@@ -277,7 +268,7 @@ void handleSave() {
     // Save the configuration
     configSSID = ssid;
     configPassword = password;
-    // Server URL is now static, no need to collect it
+    configServerIP = server;
     
     String html = "<!DOCTYPE html><html><head><title>Configuration Saved</title>"
                   "<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -299,6 +290,7 @@ void handleSave() {
     
     Serial.println("Configuration received:");
     Serial.println("SSID: " + configSSID);
+    Serial.println("Server IP: " + configServerIP);
     
     configComplete = true;
   } else {
@@ -584,6 +576,12 @@ void waitForResponseAndPlay()
     return;
   }
 
+  // time to get the answer from the server
+  unsigned long endMicros = micros();    // End time
+  float durationSeconds = (endMicros - startMicros) / 1000000.0; // Convert to seconds
+  Serial.print("Execution time: ");
+  Serial.print(durationSeconds, 6); // Up to 6 decimal places
+  Serial.println(" seconds");
   // Get and play audio
   Serial.println("Playing response...");
   http.begin(serverBroadcastUrl);
@@ -598,53 +596,36 @@ void waitForResponseAndPlay()
     // Skip WAV header (first 44 bytes) which might be causing issues
     uint8_t header_buffer[44];
     int header_bytes_read = 0;
-    while (header_bytes_read < 44)
-    {
+    while (header_bytes_read < 44) {
       int len = stream->read(header_buffer + header_bytes_read, 44 - header_bytes_read);
-      if (len > 0)
-      {
+      if (len > 0) {
         header_bytes_read += len;
       }
     }
-    uint8_t buffer[4096]; // Smaller buffer for more frequent writes
+    uint8_t buffer[1024]; // Smaller buffer for more frequent writes
     size_t total_bytes_written = 0;
-    int retry_count = 0;
-    const int max_retries = 5;
 
-        // Keep track of available data and handle it in chunks
-    while (stream->connected() || stream->available() > 0)
+    // Keep track of available data and handle it in chunks
+    while (stream->connected())
     {
       size_t available_bytes = stream->available();
-
       if (available_bytes == 0)
       {
-        // Wait longer for data to arrive
-        delay(50);
-        retry_count++;
-        if (retry_count > max_retries)
-          break;
+        // Small delay to allow data to arrive
+        delay(10);
         continue;
       }
-
-      retry_count = 0; // Reset retry counter when data arrives
 
       // Read a chunk of data
       int len = stream->read(buffer, min(available_bytes, sizeof(buffer)));
       if (len > 0)
       {
         size_t bytes_written = 0;
-        // Add retry logic for writing to I2S
-        int write_attempts = 0;
-        while (bytes_written < len && write_attempts < 3)
-        {
-          size_t new_bytes;
-          i2s_write(MAX_I2S_NUM, buffer + bytes_written, len - bytes_written, &new_bytes, 100);
-          bytes_written += new_bytes;
-          write_attempts++;
-          if (bytes_written < len)
-            delay(5);
-        }
+        i2s_write(MAX_I2S_NUM, buffer, len, &bytes_written, 100);
         total_bytes_written += bytes_written;
+
+        // Small delay to allow I2S to process
+        delay(5);
       }
     }
 
@@ -659,7 +640,6 @@ void waitForResponseAndPlay()
 
   http.end();
 }
-
 
 void i2sInitINMP441()
 {
@@ -844,36 +824,4 @@ void printSpaceInfo()
   Serial.println(usedBytes);
   Serial.print("Free space: ");
   Serial.println(freeBytes);
-}
-bool tryHardcodedWifi() {
-  // Try to connect with hardcoded WiFi credentials from config.h
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true);
-  delay(100);
-  
-  Serial.print("Connecting to hardcoded WiFi: ");
-  Serial.println(WIFI_SSID);
-  
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  
-  // Try to connect 3 times
-  int attempts = 0;
-  const int maxAttempts = 3;
-  
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
-    delay(1000);
-    Serial.print(".");
-    attempts++;
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    digitalWrite(isWifiConnectedPin, HIGH);
-    Serial.println("\nConnected to WiFi!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-    return true;
-  } else {
-    Serial.println("\nFailed to connect using hardcoded credentials.");
-    return false;
-  }
 }

@@ -49,7 +49,7 @@ app.post('/uploadAudio', async (req, res) => {
     req.on('end', async () => {
       recordingFile.end();
       console.log(`Audio upload complete. Total size: ${dataSize} bytes`);
-      
+
       try {
         const transcription = await speechToTextAPI();
         if (transcription) {
@@ -176,9 +176,9 @@ async function speechToTextAPI() {
 async function callGroq(text) {
   try {
     console.log('Sending to Groq:', text);
-    
+
     const apiUrl = "https://api.groq.com/openai/v1/chat/completions";
-    
+
     const response = await axios.post(
       apiUrl,
       {
@@ -209,7 +209,7 @@ async function callGroq(text) {
 
     // Convert response to speech
     await GptResponsetoSpeech(groqResponse);
-    
+
   } catch (error) {
     console.error('Error calling Groq API:');
     if (error.response) {
@@ -218,7 +218,7 @@ async function callGroq(text) {
     } else {
       console.error(error.message);
     }
-    
+
     // Send a fallback response in case of error
     const fallbackResponse = "I'm sorry, I couldn't process your request at this time.";
     await GptResponsetoSpeech(fallbackResponse);
@@ -243,9 +243,9 @@ async function callCustomLLM(text) {
       }
     );
 
-    const customResponse = response.data.response;  // Extract the string only
-
-    console.log('Custom LLM Response:', customResponse);
+    // Extract the string response from the object
+    const customResponse = response.data.response; // Access the 'response' property
+    console.log('Custom LLM Response:', response.data);
 
     // Convert response to speech
     await GptResponsetoSpeech(customResponse);
@@ -265,11 +265,11 @@ async function GptResponsetoSpeech(gptResponse) {
     if (!gptResponse || gptResponse.trim() === '') {
       gptResponse = "I'm sorry, I don't have a response at this time.";
     }
-    
+
     const request = {
       input: { text: gptResponse },
       voice: { languageCode: 'en-US', ssmlGender: 'NEUTRAL' },
-      audioConfig: { 
+      audioConfig: {
         audioEncoding: 'LINEAR16',
         sampleRateHertz: 16000,  // Make sure this matches ESP32
         effectsProfileId: ['headphone-class-device'],
