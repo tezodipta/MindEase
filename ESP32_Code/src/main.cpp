@@ -23,7 +23,7 @@
 // LED Ports
 #define isWifiConnectedPin 25
 #define isAudioRecording 32
-#define LED_BUILTIN BUILTIN_LED
+#define LED 2 
 
 // AP Mode Configuration
 #define AP_SSID "MideEase_Config"
@@ -444,6 +444,8 @@ void SPIFFSInit()
 
 void handleVoiceAssistantWorkflow()
 {
+  unsigned long totalStart = millis();
+
   // Check WiFi and reconnect if needed
   if (WiFi.status() != WL_CONNECTED)
   {
@@ -479,10 +481,16 @@ void handleVoiceAssistantWorkflow()
   file.write(header, headerSize);
 
   // Record audio
+  unsigned long t1 = millis();
+  digitalWrite(LED_BUILTIN, HIGH);
   recordAudio();
+  Serial.printf("Time taken for recording: %lu ms\n", millis() - t1);
 
   // Upload to server
+  
+  t1 = millis();
   uploadFile();
+  Serial.printf("Time taken for upload: %lu ms\n", millis() - t1);
 
   // Clean up recording file to save space
   if (SPIFFS.exists(audioRecordfile))
@@ -491,7 +499,10 @@ void handleVoiceAssistantWorkflow()
   }
 
   // Wait for response and play it
+  t1 = millis();
   waitForResponseAndPlay();
+  Serial.printf("Time taken for wait + playback: %lu ms\n", millis() - t1);
+  Serial.printf("Total workflow time: %lu ms\n", millis() - totalStart);
 
   // Clean up response file
   if (SPIFFS.exists(audioResponsefile))
@@ -505,7 +516,6 @@ void handleVoiceAssistantWorkflow()
 void recordAudio()
 {
   digitalWrite(isAudioRecording, HIGH);
-  digitalWrite(LED_BUILTIN, HIGH);
   Serial.println(" *** Get Ready to Speak *** ");
 
   // Initialize buffer for flushing
@@ -561,12 +571,16 @@ void uploadFile()
   }
 
   Serial.println("===> Upload FILE to Node.js Server");
+  Serial.printf("Free heap before upload: %u bytes\n", ESP.getFreeHeap());
+
 
   HTTPClient client;
   client.begin(serverUploadUrl);
   client.addHeader("Content-Type", "audio/wav");
-  client.setTimeout(6000); // <-- wait up to 60 seconds
+  client.setTimeout(10000); // <-- wait up to 60 seconds
   // client.setReuse(true);              // optional: reuse the TCP connection
+  delay(500);  // Give ESP some breathing time
+  yield();     // Yield to WiFi task scheduler
   int httpResponseCode = client.sendRequest("POST", &file, file.size());
 
   Serial.print("httpResponseCode : ");
@@ -579,9 +593,11 @@ void uploadFile()
     Serial.println(response);
     Serial.println("====================      End      ====================");
   }
-  else
-  {
-    Serial.println("Server is not available");
+  else {
+    Serial.printf("Upload failed, error code: %d\n", httpResponseCode);
+    if (httpResponseCode == -11) {
+      Serial.println("Likely memory or timeout issue. Try increasing timeout or reducing file size.");
+    }
   }
 
   file.close();
@@ -645,7 +661,7 @@ void waitForResponseAndPlay()
         header_bytes_read += len;
       }
     }
-    uint8_t buffer[1024]; // Smaller buffer for more frequent writes
+    uint8_t buffer[4096]; // Smaller buffer for more frequent writes
     size_t total_bytes_written = 0;
 
     // Keep track of available data and handle it in chunks
@@ -671,7 +687,9 @@ void waitForResponseAndPlay()
     delay(500);
     i2s_stop(MAX_I2S_NUM);
     i2s_zero_dma_buffer(MAX_I2S_NUM);
+    i2s_start(MAX_I2S_NUM);
     Serial.printf("Audio playback completed (bytes: %d)\n", total_bytes_written);
+    Serial.printf("Playback time: %lu ms\n", millis() - playbackStart);
   }
   else
   {

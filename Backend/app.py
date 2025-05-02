@@ -10,6 +10,7 @@ import base64
 import requests
 import socket
 from pathlib import Path
+import time 
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +43,8 @@ def upload_audio():
     global should_download_file
     should_download_file = False
 
+    total_start = time.time()  # Start total time
+
     try:
         with open(record_file, 'wb') as f:
             data_size = 0
@@ -53,18 +56,31 @@ def upload_audio():
                 f.write(chunk)
 
         print(f"Audio upload complete. Total size: {data_size} bytes")
+
+        stt_start = time.time()
         transcription = speech_to_text_api()
+        stt_end = time.time()
+        print(f"STT Time: {stt_end - stt_start:.2f} seconds")
 
         if transcription:
             print("Transcription successful, calling Groq...")
+            ai_start = time.time()
             call_groq(transcription)
-            # call_custom_llm(transcription)  # Or replace with call_custom_llm(transcription)
+            # call_custom_llm(transcription)
+            ai_end = time.time()
+            print(f"LLM Response Time: {ai_end - ai_start:.2f} seconds")
+
+            total_end = time.time()
+            print(f"Total Time (STT + LLM + TTS): {total_end - total_start:.2f} seconds")
+
             return transcription, 200
         else:
             return "Error transcribing audio", 200
+
     except Exception as e:
         print("Unexpected error:", e)
         return "Unexpected server error", 500
+
 
 # Check readiness
 @app.route('/checkVariable', methods=['GET'])
@@ -186,9 +202,11 @@ def call_custom_llm(text):
 def gpt_response_to_speech(gpt_response):
     global should_download_file
     try:
+        tts_start = time.time()  # Start timer
+
         if not gpt_response.strip():
             gpt_response = "I'm sorry, I don't have a response at this time."
-
+        
         input_text = texttospeech.SynthesisInput(text=gpt_response)
         voice = texttospeech.VoiceSelectionParams(
             language_code="en-US", ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
@@ -196,7 +214,6 @@ def gpt_response_to_speech(gpt_response):
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.LINEAR16,
             sample_rate_hertz=16000,
-            # audio_channel_count=1,  # Set to mono
             effects_profile_id=["headphone-class-device"],
             pitch=0.0,
             speaking_rate=1.0,
@@ -205,7 +222,6 @@ def gpt_response_to_speech(gpt_response):
         response = tts_client.synthesize_speech(
             input=input_text, voice=voice, audio_config=audio_config
         )
-        
 
         with open(voiced_file, "wb") as out:
             out.write(response.audio_content)
@@ -214,9 +230,13 @@ def gpt_response_to_speech(gpt_response):
         should_download_file = True
         print("TTS conversion complete, response ready for playback")
 
+        tts_end = time.time()
+        print(f"TTS Time: {tts_end - tts_start:.2f} seconds")
+
     except Exception as e:
         print("Error in TTS conversion:", e)
         should_download_file = False
+
 
 # Server Start
 if __name__ == '__main__':
