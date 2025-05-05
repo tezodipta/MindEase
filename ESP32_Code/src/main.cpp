@@ -105,6 +105,9 @@ void setup()
   digitalWrite(isWifiConnectedPin, LOW);
   pinMode(isAudioRecording, OUTPUT);
   digitalWrite(isAudioRecording, LOW);
+  digitalWrite(LED,OUTPUT);
+  digitalWrite(LED, LOW);
+
 
   // Set up button with interrupt
   pinMode(Button_Pin, INPUT_PULLUP);
@@ -482,7 +485,7 @@ void handleVoiceAssistantWorkflow()
 
   // Record audio
   unsigned long t1 = millis();
-  digitalWrite(LED_BUILTIN, HIGH);
+  digitalWrite(LED, HIGH);
   recordAudio();
   Serial.printf("Time taken for recording: %lu ms\n", millis() - t1);
 
@@ -509,7 +512,7 @@ void handleVoiceAssistantWorkflow()
   {
     SPIFFS.remove(audioResponsefile);
   }
-  digitalWrite(LED_BUILTIN, LOW);
+  digitalWrite(LED, LOW);
   Serial.println("Workflow completed. Ready for next button press.");
 }
 
@@ -604,98 +607,74 @@ void uploadFile()
   client.end();
 }
 
-void waitForResponseAndPlay()
-{
+void waitForResponseAndPlay() {
   HTTPClient http;
   int maxAttempts = 30;
   bool responseReady = false;
 
   Serial.println("Waiting for server processing...");
 
-  // Poll server for response readiness
-  for (int i = 0; i < maxAttempts; i++)
-  {
+  for (int i = 0; i < maxAttempts; i++) {
     http.begin(broadcastPermitionUrl);
     int httpResponseCode = http.GET();
 
-    if (httpResponseCode > 0)
-    {
+    if (httpResponseCode > 0) {
       String payload = http.getString();
-      if (payload.indexOf("\"ready\":true") > -1)
-      {
+      if (payload.indexOf("\"ready\":true") > -1) {
         responseReady = true;
         break;
       }
     }
-
     http.end();
     delay(500);
   }
 
-  if (!responseReady)
-  {
+  if (!responseReady) {
     Serial.println("Server response timeout");
     return;
   }
 
-  // Get and play audio
   Serial.println("Playing response...");
   http.begin(serverBroadcastUrl);
   int httpCode = http.GET();
 
-  if (httpCode == HTTP_CODE_OK)
-  {
-    // Clear the I2S buffer before starting playback
+  if (httpCode == HTTP_CODE_OK) {
     i2s_zero_dma_buffer(MAX_I2S_NUM);
 
     WiFiClient *stream = http.getStreamPtr();
-    size_t contentLength = http.getSize(); // this reads the Content-Length header
-    // Skip WAV header (first 44 bytes) which might be causing issues
+    size_t contentLength = http.getSize();
+
+    // Skip WAV header
     uint8_t header_buffer[44];
     int header_bytes_read = 0;
-    while (header_bytes_read < 44)
-    {
+    while (header_bytes_read < 44) {
       int len = stream->read(header_buffer + header_bytes_read, 44 - header_bytes_read);
-      if (len > 0)
-      {
-        header_bytes_read += len;
-      }
+      if (len > 0) header_bytes_read += len;
     }
-    uint8_t buffer[4096]; // Smaller buffer for more frequent writes
-    size_t total_bytes_written = 0;
 
-    // Keep track of available data and handle it in chunks
+    uint8_t buffer[4096];
+    size_t total_bytes_written = 0;
     unsigned long playbackStart = millis();
 
-    while (total_bytes_written < contentLength && millis() - playbackStart < 15000)
-    {
+    while (total_bytes_written < contentLength && millis() - playbackStart < 15000) {
       int len = stream->read(buffer, sizeof(buffer));
-      if (len > 0)
-      {
+      if (len > 0) {
         size_t written;
         i2s_write(MAX_I2S_NUM, buffer, len, &written, portMAX_DELAY);
         total_bytes_written += written;
-      }
-      else
-      {
-        // no data right now, give it a moment
+      } else {
         delay(5);
       }
     }
 
-    // Make sure all data is played before finishing
     delay(500);
     i2s_stop(MAX_I2S_NUM);
     i2s_zero_dma_buffer(MAX_I2S_NUM);
     i2s_start(MAX_I2S_NUM);
     Serial.printf("Audio playback completed (bytes: %d)\n", total_bytes_written);
-    Serial.printf("Playback time: %lu ms\n", millis() - playbackStart);
-  }
-  else
-  {
+  } else {
     Serial.printf("HTTP GET failed, error: %s\n", http.errorToString(httpCode).c_str());
   }
-
   http.end();
 }
 
@@ -723,26 +702,27 @@ void i2sInitINMP441()
   i2s_set_pin(I2S_PORT, &pin_config);
 }
 
-void i2sInitMax98357A()
-{
+void i2sInitMax98357A() {
   i2s_config_t i2s_config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-      .sample_rate = MAX_I2S_SAMPLE_RATE, // 16000 Hz
+      .sample_rate = MAX_I2S_SAMPLE_RATE,
       .bits_per_sample = i2s_bits_per_sample_t(MAX_I2S_SAMPLE_BITS),
-      .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, // Try changing to ONLY_RIGHT if still too fast
+      .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,
       .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-      .intr_alloc_flags = 0, // ESP_INTR_FLAG_LEVEL1,
-      .dma_buf_count = 4,    // 8,
-      .dma_buf_len = 1024,   // MAX_I2S_READ_LEN,
+      .intr_alloc_flags = 0,
+      .dma_buf_count = 4,
+      .dma_buf_len = 1024,
       .use_apll = false,
       .tx_desc_auto_clear = true,
-      .fixed_mclk = 0};
+      .fixed_mclk = 0
+  };
 
   i2s_pin_config_t pin_config = {
       .bck_io_num = I2S_BCLK,
       .ws_io_num = I2S_LRC,
       .data_out_num = I2S_DOUT,
-      .data_in_num = -1}; // I2S_PIN_NO_CHANGE
+      .data_in_num = -1
+  };
 
   i2s_driver_install(MAX_I2S_NUM, &i2s_config, 0, NULL);
   i2s_set_pin(MAX_I2S_NUM, &pin_config);
